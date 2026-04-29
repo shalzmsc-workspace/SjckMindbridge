@@ -5,8 +5,11 @@ const cors = require("cors");
 const mongoose = require("mongoose");
 
 const app = express();
+
+// 🔥 IMPORTANT FIX FOR IMAGE SIZE
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
+
 app.use(cors());
 
 // ================= ROOT =================
@@ -19,7 +22,11 @@ const server = http.createServer(app);
 
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
+  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority",
+  {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  }
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
@@ -97,9 +104,8 @@ io.on("connection", (socket) => {
 // REGISTER
 app.post("/register", async (req, res) => {
   try {
-    console.log("📥 Register:", req.body);
-
     const { name, email, password } = req.body;
+
     const cleanEmail = email?.trim().toLowerCase();
 
     if (!name || !cleanEmail || !password) {
@@ -120,7 +126,7 @@ app.post("/register", async (req, res) => {
 
     await newUser.save();
 
-    console.log("✅ User saved");
+    console.log("✅ User registered:", cleanEmail);
 
     res.json({ success: true });
 
@@ -155,9 +161,7 @@ app.post("/login", async (req, res) => {
 // USERS
 app.get("/users", async (req, res) => {
   try {
-    console.log("🔥 USERS API CALLED");
-
-    const users = await User.find();
+    const users = await User.find().maxTimeMS(5000);
 
     res.json(users);
 
@@ -167,15 +171,25 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// ✅ PROFILE UPLOAD (FIXED)
+// ================= PROFILE UPLOAD =================
 app.post("/upload-profile", async (req, res) => {
   try {
-    console.log("📸 Upload request:", req.body.email);
-
     const { email, image } = req.body;
 
+    console.log("📸 Upload request:", email);
+
     if (!email || !image) {
-      return res.status(400).json({ success: false, message: "Missing data" });
+      return res.status(400).json({
+        success: false,
+        message: "Missing email or image"
+      });
+    }
+
+    if (image.length > 10 * 1024 * 1024) {
+      return res.status(400).json({
+        success: false,
+        message: "Image too large"
+      });
     }
 
     const user = await User.findOneAndUpdate(
@@ -185,16 +199,22 @@ app.post("/upload-profile", async (req, res) => {
     );
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
     }
 
-    console.log("✅ Profile updated");
+    console.log("✅ Profile updated for:", email);
 
     res.json({ success: true, user });
 
   } catch (err) {
     console.log("❌ PROFILE ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({
+      success: false,
+      message: err.message
+    });
   }
 });
 
