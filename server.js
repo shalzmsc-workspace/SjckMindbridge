@@ -18,7 +18,7 @@ const server = http.createServer(app);
 
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://mindbridgeuser:mindbridgeuser@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
+  "mongodb+srv://mindbridgeadmin:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
@@ -53,7 +53,7 @@ const io = new Server(server, {
 
 let onlineUsers = {};
 
-// 🔥 BROADCAST ONLINE USERS
+// 🔥 ONLINE USERS
 const broadcastOnlineUsers = () => {
   io.emit("online-users", Object.keys(onlineUsers));
 };
@@ -61,7 +61,6 @@ const broadcastOnlineUsers = () => {
 io.on("connection", (socket) => {
   console.log("🔥 Connected:", socket.id);
 
-  // REGISTER USER
   socket.on("register-user", (email) => {
     const cleanEmail = email?.trim().toLowerCase();
     if (!cleanEmail) return;
@@ -70,12 +69,10 @@ io.on("connection", (socket) => {
     broadcastOnlineUsers();
   });
 
-  // JOIN ROOM
   socket.on("join_room", (room) => {
     if (room) socket.join(room);
   });
 
-  // SEND MESSAGE
   socket.on("send_message", async (data) => {
     try {
       if (!data?.room) return;
@@ -89,7 +86,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // CALL USER
   socket.on("call-user", ({ to, from }) => {
     const target = onlineUsers[to?.toLowerCase()];
     if (target) {
@@ -97,7 +93,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // ACCEPT CALL
   socket.on("accept-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
     if (caller) {
@@ -105,7 +100,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // REJECT CALL
   socket.on("reject-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
     if (caller) {
@@ -113,7 +107,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  // DISCONNECT
   socket.on("disconnect", () => {
     for (let email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
@@ -148,7 +141,6 @@ app.post("/login", async (req, res) => {
   }
 });
 
-
 // REGISTER
 app.post("/register", async (req, res) => {
   try {
@@ -163,7 +155,7 @@ app.post("/register", async (req, res) => {
     const exists = await User.findOne({ email: cleanEmail });
 
     if (exists) {
-      return res.json({ success: false, message: "User exists" });
+      return res.json({ success: false, message: "User already exists" });
     }
 
     const newUser = new User({
@@ -181,28 +173,18 @@ app.post("/register", async (req, res) => {
   }
 });
 
-
-// GET USERS
+// USERS
 app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find();
-    res.json(users);
-  } catch (err) {
-    res.json([]);
-  }
+  const users = await User.find();
+  res.json(users);
 });
 
-
-// GET MESSAGES
+// MESSAGES
 app.get("/messages/:room", async (req, res) => {
-  try {
-    const messages = await Message.find({
-      room: req.params.room,
-    });
-    res.json(messages);
-  } catch {
-    res.json([]);
-  }
+  const messages = await Message.find({
+    room: req.params.room,
+  });
+  res.json(messages);
 });
 
 
