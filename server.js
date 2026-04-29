@@ -6,10 +6,10 @@ const mongoose = require("mongoose");
 
 const app = express();
 
+// ================= MIDDLEWARE =================
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-// 🔥 IMPORTANT CORS FIX
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"]
@@ -45,7 +45,7 @@ const messageSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 86400
+    expires: 86400 // 24 hours auto delete
   }
 });
 
@@ -54,9 +54,7 @@ const Message = mongoose.model("Message", messageSchema);
 
 // ================= SOCKET =================
 const io = new Server(server, {
-  cors: {
-    origin: "*"
-  }
+  cors: { origin: "*" }
 });
 
 let onlineUsers = {};
@@ -70,16 +68,23 @@ io.on("connection", (socket) => {
   });
 
   socket.on("join_room", (room) => {
+    if (!room) return;
     socket.join(room);
     console.log("📦 Joined room:", room);
   });
 
   socket.on("disconnect", () => {
     console.log("❌ Disconnected:", socket.id);
+
+    for (let email in onlineUsers) {
+      if (onlineUsers[email] === socket.id) {
+        delete onlineUsers[email];
+      }
+    }
   });
 });
 
-// ================= 🔥 GET MESSAGES =================
+// ================= GET MESSAGES =================
 app.get("/messages/:room", async (req, res) => {
   try {
     const messages = await Message.find({
@@ -94,17 +99,15 @@ app.get("/messages/:room", async (req, res) => {
   }
 });
 
-// ================= 🔥 SEND MESSAGE =================
+// ================= SEND MESSAGE =================
 app.post("/send-message", async (req, res) => {
   try {
     const { room, text, sender } = req.body;
 
-    console.log("📩 Incoming message:", req.body);
+    console.log("📩 Incoming:", req.body);
 
     if (!room || !text || !sender) {
-      return res.status(400).json({
-        error: "Missing fields"
-      });
+      return res.status(400).json({ error: "Missing fields" });
     }
 
     const newMessage = new Message({
@@ -115,9 +118,9 @@ app.post("/send-message", async (req, res) => {
 
     await newMessage.save();
 
-    console.log("✅ Saved to DB");
+    console.log("✅ Message saved");
 
-    // 🔥 SEND TO SOCKET USERS ALSO
+    // 🔥 REALTIME EMIT (ONLY HERE, NOT IN SOCKET)
     io.to(room).emit("receive_message", newMessage);
 
     res.json(newMessage);
@@ -133,26 +136,31 @@ app.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    const cleanEmail = email?.toLowerCase();
+    if (!name || !email || !password) {
+      return res.json({ success: false, message: "All fields required" });
+    }
+
+    const cleanEmail = email.toLowerCase();
 
     const exists = await User.findOne({ email: cleanEmail });
 
     if (exists) {
-      return res.json({ success: false });
+      return res.json({ success: false, message: "User exists" });
     }
 
-    const user = new User({
+    const newUser = new User({
       name,
       email: cleanEmail,
       password,
       profile: ""
     });
 
-    await user.save();
+    await newUser.save();
 
     res.json({ success: true });
 
   } catch (err) {
+    console.log("❌ REGISTER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -170,27 +178,44 @@ app.post("/login", async (req, res) => {
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false });
+      res.json({ success: false, message: "Invalid credentials" });
     }
 
   } catch (err) {
+    console.log("❌ LOGIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
-// ================= USER =================
+// ================= GET USER =================
 app.get("/user/:email", async (req, res) => {
-  const user = await User.findOne({
-    email: req.params.email.toLowerCase()
-  });
+  try {
+    const user = await User.findOne({
+      email: req.params.email.toLowerCase()
+    });
 
-  res.json(user);
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ================= PROFILE =================
+// ================= PROFILE UPDATE =================
 app.post("/upload-profile", async (req, res) => {
   try {
     const { email, image } = req.body;
+
+    if (!email || !image) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing data"
+      });
+    }
 
     const user = await User.findOneAndUpdate(
       { email: email.toLowerCase() },
@@ -198,9 +223,17 @@ app.post("/upload-profile", async (req, res) => {
       { new: true }
     );
 
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
     res.json({ success: true, user });
 
   } catch (err) {
+    console.log("❌ PROFILE ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
