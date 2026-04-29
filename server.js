@@ -16,12 +16,11 @@ app.get("/", (req, res) => {
 // ================= SERVER =================
 const server = http.createServer(app);
 
-// ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://mindbridgeadmin:mindbridgeadmin@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
+  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
-.catch((err) => console.log("❌ DB Error:", err));
+.catch((err) => console.log("❌ MongoDB Error:", err));
 
 // ================= MODELS =================
 const userSchema = new mongoose.Schema({
@@ -143,32 +142,29 @@ app.post("/login", async (req, res) => {
 // REGISTER
 app.post("/register", async (req, res) => {
   try {
+    console.log("📥 Register request:", req.body);
+
     const { name, email, password } = req.body;
 
     const cleanEmail = email.trim().toLowerCase();
 
-    if (!name || !cleanEmail || !password) {
-      return res.json({ success: false, message: "All fields required" });
-    }
-
     const exists = await User.findOne({ email: cleanEmail });
 
     if (exists) {
-      return res.json({ success: false, message: "User already exists" });
+      console.log("⚠️ User already exists");
+      return res.json({ success: false, message: "User exists" });
     }
 
-    const newUser = new User({
-      name,
-      email: cleanEmail,
-      password,
-    });
+    const newUser = new User({ name, email: cleanEmail, password });
 
     await newUser.save();
 
+    console.log("✅ User saved");
+
     res.json({ success: true });
   } catch (err) {
-    console.log("❌ Register error:", err);
-    res.json({ success: false });
+    console.log("❌ REGISTER ERROR:", err);
+    res.json({ success: false, message: err.message });
   }
 });
 
