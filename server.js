@@ -171,3 +171,20 @@ const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
 });
+// ✅ ADD HERE 👇 (same level as login/register)
+app.post("/upload-profile", async (req, res) => {
+  try {
+    const { email, image } = req.body;
+
+    const user = await User.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { profile: image },
+      { new: true }
+    );
+
+    res.json({ success: true, user });
+  } catch (err) {
+    console.log("❌ PROFILE ERROR:", err);
+    res.json({ success: false });
+  }
+});
