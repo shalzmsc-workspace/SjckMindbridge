@@ -8,7 +8,7 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// ================= ROOT ROUTE =================
+// ================= ROOT =================
 app.get("/", (req, res) => {
   res.send("🚀 MindBridge Backend Running");
 });
@@ -99,7 +99,7 @@ app.post("/register", async (req, res) => {
     console.log("📥 Register:", req.body);
 
     const { name, email, password } = req.body;
-    const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = email?.trim().toLowerCase();
 
     if (!name || !cleanEmail || !password) {
       return res.json({ success: false, message: "All fields required" });
@@ -111,7 +111,12 @@ app.post("/register", async (req, res) => {
       return res.json({ success: false, message: "User exists" });
     }
 
-    const newUser = new User({ name, email: cleanEmail, password });
+    const newUser = new User({
+      name,
+      email: cleanEmail,
+      password,
+    });
+
     await newUser.save();
 
     console.log("✅ User saved");
@@ -119,7 +124,7 @@ app.post("/register", async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     console.log("❌ REGISTER ERROR:", err);
-    res.json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -136,15 +141,15 @@ app.post("/login", async (req, res) => {
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false });
+      res.json({ success: false, message: "Invalid credentials" });
     }
   } catch (err) {
     console.log("❌ LOGIN ERROR:", err);
-    res.json({ success: false });
+    res.status(500).json({ success: false });
   }
 });
 
-// USERS (FIXED)
+// USERS
 app.get("/users", async (req, res) => {
   try {
     console.log("🔥 USERS API CALLED");
