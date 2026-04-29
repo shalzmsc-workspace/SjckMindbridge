@@ -6,11 +6,14 @@ const mongoose = require("mongoose");
 
 const app = express();
 
-// 🔥 IMPORTANT FIX FOR IMAGE SIZE
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
-app.use(cors());
+// 🔥 IMPORTANT CORS FIX
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"]
+}));
 
 // ================= ROOT =================
 app.get("/", (req, res) => {
@@ -22,11 +25,7 @@ const server = http.createServer(app);
 
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority",
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  }
+  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
@@ -43,8 +42,11 @@ const messageSchema = new mongoose.Schema({
   room: String,
   text: String,
   sender: String,
-  time: String,
-  createdAt: { type: Date, default: Date.now }
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 86400
+  }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -52,145 +54,143 @@ const Message = mongoose.model("Message", messageSchema);
 
 // ================= SOCKET =================
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: {
+    origin: "*"
+  }
 });
 
 let onlineUsers = {};
 
-const broadcastOnlineUsers = () => {
-  io.emit("online-users", Object.keys(onlineUsers));
-};
-
 io.on("connection", (socket) => {
-  console.log("🔥 Connected:", socket.id);
+  console.log("🔥 Socket Connected:", socket.id);
 
   socket.on("register-user", (email) => {
-    const cleanEmail = email?.trim().toLowerCase();
-    if (!cleanEmail) return;
-
-    onlineUsers[cleanEmail] = socket.id;
-    broadcastOnlineUsers();
+    if (!email) return;
+    onlineUsers[email] = socket.id;
   });
 
   socket.on("join_room", (room) => {
-    if (room) socket.join(room);
-  });
-
-  socket.on("send_message", async (data) => {
-    try {
-      if (!data?.room) return;
-
-      const newMsg = new Message(data);
-      await newMsg.save();
-
-      io.to(data.room).emit("receive_message", newMsg);
-    } catch (err) {
-      console.log("❌ Message error:", err);
-    }
+    socket.join(room);
+    console.log("📦 Joined room:", room);
   });
 
   socket.on("disconnect", () => {
-    for (let email in onlineUsers) {
-      if (onlineUsers[email] === socket.id) {
-        delete onlineUsers[email];
-      }
-    }
-    broadcastOnlineUsers();
+    console.log("❌ Disconnected:", socket.id);
   });
 });
 
-// ================= APIs =================
+// ================= 🔥 GET MESSAGES =================
+app.get("/messages/:room", async (req, res) => {
+  try {
+    const messages = await Message.find({
+      room: req.params.room
+    }).sort({ createdAt: 1 });
 
-// REGISTER
+    res.json(messages);
+
+  } catch (err) {
+    console.log("❌ GET MSG ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= 🔥 SEND MESSAGE =================
+app.post("/send-message", async (req, res) => {
+  try {
+    const { room, text, sender } = req.body;
+
+    console.log("📩 Incoming message:", req.body);
+
+    if (!room || !text || !sender) {
+      return res.status(400).json({
+        error: "Missing fields"
+      });
+    }
+
+    const newMessage = new Message({
+      room,
+      text,
+      sender
+    });
+
+    await newMessage.save();
+
+    console.log("✅ Saved to DB");
+
+    // 🔥 SEND TO SOCKET USERS ALSO
+    io.to(room).emit("receive_message", newMessage);
+
+    res.json(newMessage);
+
+  } catch (err) {
+    console.log("❌ SEND ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= REGISTER =================
 app.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
-    const cleanEmail = email?.trim().toLowerCase();
-
-    if (!name || !cleanEmail || !password) {
-      return res.json({ success: false, message: "All fields required" });
-    }
+    const cleanEmail = email?.toLowerCase();
 
     const exists = await User.findOne({ email: cleanEmail });
 
     if (exists) {
-      return res.json({ success: false, message: "User exists" });
+      return res.json({ success: false });
     }
 
-    const newUser = new User({
+    const user = new User({
       name,
       email: cleanEmail,
-      password
+      password,
+      profile: ""
     });
 
-    await newUser.save();
-
-    console.log("✅ User registered:", cleanEmail);
+    await user.save();
 
     res.json({ success: true });
 
   } catch (err) {
-    console.log("❌ REGISTER ERROR:", err);
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false });
   }
 });
 
-// LOGIN
+// ================= LOGIN =================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
 
     const user = await User.findOne({
-      email: email.trim().toLowerCase(),
+      email: email.toLowerCase(),
       password
     });
 
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false, message: "Invalid credentials" });
+      res.json({ success: false });
     }
 
   } catch (err) {
-    console.log("❌ LOGIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
-// USERS
-app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find().maxTimeMS(5000);
+// ================= USER =================
+app.get("/user/:email", async (req, res) => {
+  const user = await User.findOne({
+    email: req.params.email.toLowerCase()
+  });
 
-    res.json(users);
-
-  } catch (err) {
-    console.log("❌ USERS ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
+  res.json(user);
 });
 
-// ================= PROFILE UPLOAD =================
+// ================= PROFILE =================
 app.post("/upload-profile", async (req, res) => {
   try {
     const { email, image } = req.body;
-
-    console.log("📸 Upload request:", email);
-
-    if (!email || !image) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing email or image"
-      });
-    }
-
-    if (image.length > 10 * 1024 * 1024) {
-      return res.status(400).json({
-        success: false,
-        message: "Image too large"
-      });
-    }
 
     const user = await User.findOneAndUpdate(
       { email: email.toLowerCase() },
@@ -198,23 +198,10 @@ app.post("/upload-profile", async (req, res) => {
       { new: true }
     );
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
-    }
-
-    console.log("✅ Profile updated for:", email);
-
     res.json({ success: true, user });
 
   } catch (err) {
-    console.log("❌ PROFILE ERROR:", err);
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    res.status(500).json({ success: false });
   }
 });
 
