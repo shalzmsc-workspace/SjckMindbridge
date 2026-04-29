@@ -15,13 +15,14 @@ app.get("/", (req, res) => {
 
 // ================= SERVER =================
 const server = http.createServer(app);
-const mongoose = require("mongoose");
 
+// ================= MONGODB =================
 mongoose.connect(
   "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
+
 // ================= MODELS =================
 const userSchema = new mongoose.Schema({
   name: String,
@@ -41,17 +42,13 @@ const messageSchema = new mongoose.Schema({
 const User = mongoose.model("User", userSchema);
 const Message = mongoose.model("Message", messageSchema);
 
-
 // ================= SOCKET =================
 const io = new Server(server, {
-  cors: {
-    origin: "*",
-  },
+  cors: { origin: "*" },
 });
 
 let onlineUsers = {};
 
-// 🔥 ONLINE USERS
 const broadcastOnlineUsers = () => {
   io.emit("online-users", Object.keys(onlineUsers));
 };
@@ -84,27 +81,6 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("call-user", ({ to, from }) => {
-    const target = onlineUsers[to?.toLowerCase()];
-    if (target) {
-      io.to(target).emit("incoming-call", { from });
-    }
-  });
-
-  socket.on("accept-call", ({ to, from }) => {
-    const caller = onlineUsers[to?.toLowerCase()];
-    if (caller) {
-      io.to(caller).emit("call-accepted", { from });
-    }
-  });
-
-  socket.on("reject-call", ({ to, from }) => {
-    const caller = onlineUsers[to?.toLowerCase()];
-    if (caller) {
-      io.to(caller).emit("call-rejected", { from });
-    }
-  });
-
   socket.on("disconnect", () => {
     for (let email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
@@ -115,8 +91,37 @@ io.on("connection", (socket) => {
   });
 });
 
-
 // ================= APIs =================
+
+// REGISTER
+app.post("/register", async (req, res) => {
+  try {
+    console.log("📥 Register:", req.body);
+
+    const { name, email, password } = req.body;
+    const cleanEmail = email.trim().toLowerCase();
+
+    if (!name || !cleanEmail || !password) {
+      return res.json({ success: false, message: "All fields required" });
+    }
+
+    const exists = await User.findOne({ email: cleanEmail });
+
+    if (exists) {
+      return res.json({ success: false, message: "User exists" });
+    }
+
+    const newUser = new User({ name, email: cleanEmail, password });
+    await newUser.save();
+
+    console.log("✅ User saved");
+
+    res.json({ success: true });
+  } catch (err) {
+    console.log("❌ REGISTER ERROR:", err);
+    res.json({ success: false, message: err.message });
+  }
+});
 
 // LOGIN
 app.post("/login", async (req, res) => {
@@ -134,55 +139,19 @@ app.post("/login", async (req, res) => {
       res.json({ success: false });
     }
   } catch (err) {
-    console.log("❌ Login error:", err);
+    console.log("❌ LOGIN ERROR:", err);
     res.json({ success: false });
   }
 });
 
-// REGISTER
-app.post("/register", async (req, res) => {
-  try {
-    console.log("📥 Register request:", req.body);
-
-    const { name, email, password } = req.body;
-
-    const cleanEmail = email.trim().toLowerCase();
-
-    const exists = await User.findOne({ email: cleanEmail });
-
-    if (exists) {
-      console.log("⚠️ User already exists");
-      return res.json({ success: false, message: "User exists" });
-    }
-
-    const newUser = new User({ name, email: cleanEmail, password });
-
-    await newUser.save();
-
-    console.log("✅ User saved");
-
-    res.json({ success: true });
-  } catch (err) {
-    console.log("❌ REGISTER ERROR:", err);
-    res.json({ success: false, message: err.message });
-  }
-});
-
-// USERS
-app.get("/users", async (req, res) => {
-  const users = await User.find();
-  res.json(users);
-});
-
-// MESSAGES
-// GET USERS (DEBUG VERSION)
+// USERS (FIXED)
 app.get("/users", async (req, res) => {
   try {
-    console.log("🔥 /users API called");
+    console.log("🔥 USERS API CALLED");
 
     const users = await User.find();
 
-    console.log("✅ Users fetched:", users);
+    console.log("✅ USERS:", users);
 
     res.json(users);
   } catch (err) {
@@ -190,7 +159,6 @@ app.get("/users", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
 
 // ================= START =================
 const PORT = process.env.PORT || 5000;
