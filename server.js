@@ -23,7 +23,6 @@ mongoose.connect(
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
 
-
 // ================= MODELS =================
 const userSchema = new mongoose.Schema({
   name: String,
@@ -193,4 +192,13 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
+});
+app.get("/users", async (req, res) => {
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    console.log("❌ USERS ERROR:", err);
+    res.status(500).json({ error: "Server error" });
+  }
 });
