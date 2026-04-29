@@ -179,11 +179,20 @@ app.get("/users", async (req, res) => {
 });
 
 // MESSAGES
-app.get("/messages/:room", async (req, res) => {
-  const messages = await Message.find({
-    room: req.params.room,
-  });
-  res.json(messages);
+// GET USERS (DEBUG VERSION)
+app.get("/users", async (req, res) => {
+  try {
+    console.log("🔥 /users API called");
+
+    const users = await User.find();
+
+    console.log("✅ Users fetched:", users);
+
+    res.json(users);
+  } catch (err) {
+    console.log("❌ USERS ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 
@@ -192,13 +201,4 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});
-app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find();
-    res.json(users);
-  } catch (err) {
-    console.log("❌ USERS ERROR:", err);
-    res.status(500).json({ error: "Server error" });
-  }
 });
