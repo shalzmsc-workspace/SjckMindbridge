@@ -15,13 +15,13 @@ app.get("/", (req, res) => {
 
 // ================= SERVER =================
 const server = http.createServer(app);
+const mongoose = require("mongoose");
 
 mongoose.connect(
   "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
-.catch((err) => console.log("❌ MongoDB Error:", err));
-
+.catch((err) => console.log("❌ DB Error:", err));
 // ================= MODELS =================
 const userSchema = new mongoose.Schema({
   name: String,
