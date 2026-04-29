@@ -2,7 +2,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const cors = require("cors");
-const fs = require("fs");
+const mongoose = require("mongoose");
 
 const app = express();
 app.use(express.json());
@@ -10,92 +10,70 @@ app.use(cors());
 
 const server = http.createServer(app);
 
-// ✅ IMPORTANT FOR RENDER SOCKET
+// ================= MONGODB =================
+mongoose.connect("mongodb+srv://mindbridgeuser:YOUR_PASSWORD@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority")
+  .then(() => console.log("✅ MongoDB Connected"))
+  .catch((err) => console.log("❌ DB Error:", err));
+
+// ================= MODELS =================
+const userSchema = new mongoose.Schema({
+  name: String,
+  email: String,
+  password: String,
+  profile: String,
+});
+
+const messageSchema = new mongoose.Schema({
+  room: String,
+  text: String,
+  sender: String,
+  time: String,
+  createdAt: { type: Date, default: Date.now },
+});
+
+const User = mongoose.model("User", userSchema);
+const Message = mongoose.model("Message", messageSchema);
+
+// ================= SOCKET =================
 const io = new Server(server, {
   cors: {
     origin: "*",
-    methods: ["GET", "POST"],
   },
 });
 
-// 🔥 TEMP STORAGE (RENDER SAFE)
-const USERS_FILE = "/tmp/users.json";
-const MESSAGES_FILE = "/tmp/messages.json";
-
 let onlineUsers = {};
 
-
-// ================= FILE HELPERS =================
-const readUsers = () => {
-  try {
-    if (!fs.existsSync(USERS_FILE)) return [];
-    return JSON.parse(fs.readFileSync(USERS_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-};
-
-const readMessages = () => {
-  try {
-    if (!fs.existsSync(MESSAGES_FILE)) return [];
-    return JSON.parse(fs.readFileSync(MESSAGES_FILE, "utf-8"));
-  } catch {
-    return [];
-  }
-};
-
-const writeUsers = (data) => {
-  fs.writeFileSync(USERS_FILE, JSON.stringify(data, null, 2));
-};
-
-const writeMessages = (data) => {
-  fs.writeFileSync(MESSAGES_FILE, JSON.stringify(data, null, 2));
-};
-
-
-// ================= ONLINE USERS =================
+// 🔥 ONLINE USERS
 const broadcastOnlineUsers = () => {
   io.emit("online-users", Object.keys(onlineUsers));
 };
 
-
-// ================= SOCKET =================
 io.on("connection", (socket) => {
   console.log("🔥 Connected:", socket.id);
 
   socket.on("register-user", (email) => {
-    if (!email) return;
+    const cleanEmail = email?.trim().toLowerCase();
+    if (!cleanEmail) return;
 
-    const cleanEmail = email.trim().toLowerCase();
     onlineUsers[cleanEmail] = socket.id;
-
     broadcastOnlineUsers();
   });
 
   socket.on("join_room", (room) => {
-    if (!room) return;
     socket.join(room);
   });
 
-  socket.on("send_message", (data) => {
+  socket.on("send_message", async (data) => {
     if (!data?.room) return;
 
-    const messages = readMessages();
-
-    const newMsg = {
-      ...data,
-      createdAt: Date.now(),
-    };
-
-    messages.push(newMsg);
-    writeMessages(messages);
+    const newMsg = new Message(data);
+    await newMsg.save();
 
     io.to(data.room).emit("receive_message", newMsg);
   });
 
   socket.on("call-user", ({ to, from }) => {
     const target = onlineUsers[to?.toLowerCase()];
-
     if (target) {
       io.to(target).emit("incoming-call", { from });
     }
@@ -103,7 +81,6 @@ io.on("connection", (socket) => {
 
   socket.on("accept-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
-
     if (caller) {
       io.to(caller).emit("call-accepted", { from });
     }
@@ -111,7 +88,6 @@ io.on("connection", (socket) => {
 
   socket.on("reject-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
-
     if (caller) {
       io.to(caller).emit("call-rejected", { from });
     }
@@ -123,76 +99,62 @@ io.on("connection", (socket) => {
         delete onlineUsers[email];
       }
     }
-
     broadcastOnlineUsers();
   });
 });
 
-
 // ================= APIs =================
 
 // LOGIN
-app.post("/login", (req, res) => {
+app.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
-  const users = readUsers();
+  const user = await User.findOne({
+    email: email.trim().toLowerCase(),
+    password,
+  });
 
-  const user = users.find(
-    (u) =>
-      u.email.toLowerCase() === email.trim().toLowerCase() &&
-      u.password === password
-  );
-
-  res.json({ success: !!user, user });
+  if (user) {
+    res.json({ success: true, user });
+  } else {
+    res.json({ success: false });
+  }
 });
 
-
 // REGISTER
-app.post("/register", (req, res) => {
+app.post("/register", async (req, res) => {
   const { name, email, password } = req.body;
 
   const cleanEmail = email.trim().toLowerCase();
 
-  if (!name || !cleanEmail || !password) {
-    return res.json({ success: false });
-  }
-
-  let users = readUsers();
-
-  const exists = users.find(
-    (u) => u.email === cleanEmail
-  );
+  const exists = await User.findOne({ email: cleanEmail });
 
   if (exists) {
-    return res.json({ success: false });
+    return res.json({ success: false, message: "User exists" });
   }
 
-  users.push({ name, email: cleanEmail, password });
+  const newUser = new User({
+    name,
+    email: cleanEmail,
+    password,
+  });
 
-  writeUsers(users);
+  await newUser.save();
 
   res.json({ success: true });
 });
 
-
-// USERS
-app.get("/users", (req, res) => {
-  res.json(readUsers());
+// GET USERS
+app.get("/users", async (req, res) => {
+  const users = await User.find();
+  res.json(users);
 });
 
-
-// MESSAGES
-app.get("/messages/:room", (req, res) => {
-  const messages = readMessages();
-  const room = req.params.room;
-
-  const filtered = messages.filter(
-    (m) => m.room === room
-  );
-
-  res.json(filtered);
+// GET MESSAGES
+app.get("/messages/:room", async (req, res) => {
+  const messages = await Message.find({ room: req.params.room });
+  res.json(messages);
 });
-
 
 // ================= START =================
 const PORT = process.env.PORT || 5000;
