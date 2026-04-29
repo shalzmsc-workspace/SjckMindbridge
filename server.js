@@ -10,8 +10,19 @@ app.use(cors());
 
 const server = http.createServer(app);
 
+// ================= BASIC ROUTE =================
+app.get("/", (req, res) => {
+  res.send("🚀 MindBridge Backend Running");
+});
+
 // ================= MONGODB =================
-mongoose.connect("mongodb+srv://mindbridgeuser:YOUR_PASSWORD@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority")
+mongoose.connect(
+  "mongodb+srv://mindbridgeuser:mindbridgeuser@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority",
+  {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
+  }
+)
   .then(() => console.log("✅ MongoDB Connected"))
   .catch((err) => console.log("❌ DB Error:", err));
 
@@ -107,41 +118,51 @@ io.on("connection", (socket) => {
 
 // LOGIN
 app.post("/login", async (req, res) => {
-  const { email, password } = req.body;
+  try {
+    const { email, password } = req.body;
 
-  const user = await User.findOne({
-    email: email.trim().toLowerCase(),
-    password,
-  });
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+      password,
+    });
 
-  if (user) {
-    res.json({ success: true, user });
-  } else {
+    if (user) {
+      res.json({ success: true, user });
+    } else {
+      res.json({ success: false });
+    }
+  } catch (err) {
+    console.log("Login error:", err);
     res.json({ success: false });
   }
 });
 
 // REGISTER
 app.post("/register", async (req, res) => {
-  const { name, email, password } = req.body;
+  try {
+    const { name, email, password } = req.body;
 
-  const cleanEmail = email.trim().toLowerCase();
+    const cleanEmail = email.trim().toLowerCase();
 
-  const exists = await User.findOne({ email: cleanEmail });
+    const exists = await User.findOne({ email: cleanEmail });
 
-  if (exists) {
-    return res.json({ success: false, message: "User exists" });
+    if (exists) {
+      return res.json({ success: false, message: "User exists" });
+    }
+
+    const newUser = new User({
+      name,
+      email: cleanEmail,
+      password,
+    });
+
+    await newUser.save();
+
+    res.json({ success: true });
+  } catch (err) {
+    console.log("Register error:", err);
+    res.json({ success: false });
   }
-
-  const newUser = new User({
-    name,
-    email: cleanEmail,
-    password,
-  });
-
-  await newUser.save();
-
-  res.json({ success: true });
 });
 
 // GET USERS
