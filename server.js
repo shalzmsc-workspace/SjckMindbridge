@@ -8,23 +8,21 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-const server = http.createServer(app);
-
-// ================= BASIC ROUTE =================
+// ================= ROOT ROUTE =================
 app.get("/", (req, res) => {
   res.send("🚀 MindBridge Backend Running");
 });
 
+// ================= SERVER =================
+const server = http.createServer(app);
+
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://mindbridgeuser:mindbridgeuser@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority",
-  {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  }
+  "mongodb+srv://mindbridgeuser:mindbridgeuser@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
-  .then(() => console.log("✅ MongoDB Connected"))
-  .catch((err) => console.log("❌ DB Error:", err));
+.then(() => console.log("✅ MongoDB Connected"))
+.catch((err) => console.log("❌ DB Error:", err));
+
 
 // ================= MODELS =================
 const userSchema = new mongoose.Schema({
@@ -45,6 +43,7 @@ const messageSchema = new mongoose.Schema({
 const User = mongoose.model("User", userSchema);
 const Message = mongoose.model("Message", messageSchema);
 
+
 // ================= SOCKET =================
 const io = new Server(server, {
   cors: {
@@ -54,7 +53,7 @@ const io = new Server(server, {
 
 let onlineUsers = {};
 
-// 🔥 ONLINE USERS
+// 🔥 BROADCAST ONLINE USERS
 const broadcastOnlineUsers = () => {
   io.emit("online-users", Object.keys(onlineUsers));
 };
@@ -62,6 +61,7 @@ const broadcastOnlineUsers = () => {
 io.on("connection", (socket) => {
   console.log("🔥 Connected:", socket.id);
 
+  // REGISTER USER
   socket.on("register-user", (email) => {
     const cleanEmail = email?.trim().toLowerCase();
     if (!cleanEmail) return;
@@ -70,19 +70,26 @@ io.on("connection", (socket) => {
     broadcastOnlineUsers();
   });
 
+  // JOIN ROOM
   socket.on("join_room", (room) => {
-    socket.join(room);
+    if (room) socket.join(room);
   });
 
+  // SEND MESSAGE
   socket.on("send_message", async (data) => {
-    if (!data?.room) return;
+    try {
+      if (!data?.room) return;
 
-    const newMsg = new Message(data);
-    await newMsg.save();
+      const newMsg = new Message(data);
+      await newMsg.save();
 
-    io.to(data.room).emit("receive_message", newMsg);
+      io.to(data.room).emit("receive_message", newMsg);
+    } catch (err) {
+      console.log("❌ Message error:", err);
+    }
   });
 
+  // CALL USER
   socket.on("call-user", ({ to, from }) => {
     const target = onlineUsers[to?.toLowerCase()];
     if (target) {
@@ -90,6 +97,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // ACCEPT CALL
   socket.on("accept-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
     if (caller) {
@@ -97,6 +105,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // REJECT CALL
   socket.on("reject-call", ({ to, from }) => {
     const caller = onlineUsers[to?.toLowerCase()];
     if (caller) {
@@ -104,6 +113,7 @@ io.on("connection", (socket) => {
     }
   });
 
+  // DISCONNECT
   socket.on("disconnect", () => {
     for (let email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
@@ -113,6 +123,7 @@ io.on("connection", (socket) => {
     broadcastOnlineUsers();
   });
 });
+
 
 // ================= APIs =================
 
@@ -132,10 +143,11 @@ app.post("/login", async (req, res) => {
       res.json({ success: false });
     }
   } catch (err) {
-    console.log("Login error:", err);
+    console.log("❌ Login error:", err);
     res.json({ success: false });
   }
 });
+
 
 // REGISTER
 app.post("/register", async (req, res) => {
@@ -143,6 +155,10 @@ app.post("/register", async (req, res) => {
     const { name, email, password } = req.body;
 
     const cleanEmail = email.trim().toLowerCase();
+
+    if (!name || !cleanEmail || !password) {
+      return res.json({ success: false, message: "All fields required" });
+    }
 
     const exists = await User.findOne({ email: cleanEmail });
 
@@ -160,29 +176,39 @@ app.post("/register", async (req, res) => {
 
     res.json({ success: true });
   } catch (err) {
-    console.log("Register error:", err);
+    console.log("❌ Register error:", err);
     res.json({ success: false });
   }
 });
 
+
 // GET USERS
 app.get("/users", async (req, res) => {
-  const users = await User.find();
-  res.json(users);
+  try {
+    const users = await User.find();
+    res.json(users);
+  } catch (err) {
+    res.json([]);
+  }
 });
+
 
 // GET MESSAGES
 app.get("/messages/:room", async (req, res) => {
-  const messages = await Message.find({ room: req.params.room });
-  res.json(messages);
+  try {
+    const messages = await Message.find({
+      room: req.params.room,
+    });
+    res.json(messages);
+  } catch {
+    res.json([]);
+  }
 });
+
 
 // ================= START =================
 const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});// ROOT CHECK (VERY IMPORTANT)
-app.get("/", (req, res) => {
-  res.send("🚀 MindBridge Backend Running");
 });
