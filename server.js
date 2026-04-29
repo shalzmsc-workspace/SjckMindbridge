@@ -18,7 +18,7 @@ const server = http.createServer(app);
 
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://mindbridgeadmin:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
+  "mongodb+srv://mindbridgeadmin:mindbridgeadmin@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
