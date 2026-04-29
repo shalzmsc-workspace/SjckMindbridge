@@ -28,7 +28,7 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  profile: String,
+  profile: String
 });
 
 const messageSchema = new mongoose.Schema({
@@ -36,7 +36,7 @@ const messageSchema = new mongoose.Schema({
   text: String,
   sender: String,
   time: String,
-  createdAt: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model("User", userSchema);
@@ -44,7 +44,7 @@ const Message = mongoose.model("Message", messageSchema);
 
 // ================= SOCKET =================
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: { origin: "*" }
 });
 
 let onlineUsers = {};
@@ -114,7 +114,7 @@ app.post("/register", async (req, res) => {
     const newUser = new User({
       name,
       email: cleanEmail,
-      password,
+      password
     });
 
     await newUser.save();
@@ -122,6 +122,7 @@ app.post("/register", async (req, res) => {
     console.log("✅ User saved");
 
     res.json({ success: true });
+
   } catch (err) {
     console.log("❌ REGISTER ERROR:", err);
     res.status(500).json({ success: false, message: err.message });
@@ -135,7 +136,7 @@ app.post("/login", async (req, res) => {
 
     const user = await User.findOne({
       email: email.trim().toLowerCase(),
-      password,
+      password
     });
 
     if (user) {
@@ -143,6 +144,7 @@ app.post("/login", async (req, res) => {
     } else {
       res.json({ success: false, message: "Invalid credentials" });
     }
+
   } catch (err) {
     console.log("❌ LOGIN ERROR:", err);
     res.status(500).json({ success: false });
@@ -156,12 +158,42 @@ app.get("/users", async (req, res) => {
 
     const users = await User.find();
 
-    console.log("✅ USERS:", users);
-
     res.json(users);
+
   } catch (err) {
     console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ PROFILE UPLOAD (FIXED)
+app.post("/upload-profile", async (req, res) => {
+  try {
+    console.log("📸 Upload request:", req.body.email);
+
+    const { email, image } = req.body;
+
+    if (!email || !image) {
+      return res.status(400).json({ success: false, message: "Missing data" });
+    }
+
+    const user = await User.findOneAndUpdate(
+      { email: email.toLowerCase() },
+      { profile: image },
+      { new: true }
+    );
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    console.log("✅ Profile updated");
+
+    res.json({ success: true, user });
+
+  } catch (err) {
+    console.log("❌ PROFILE ERROR:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
@@ -170,21 +202,4 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});
-// ✅ ADD HERE 👇 (same level as login/register)
-app.post("/upload-profile", async (req, res) => {
-  try {
-    const { email, image } = req.body;
-
-    const user = await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
-      { profile: image },
-      { new: true }
-    );
-
-    res.json({ success: true, user });
-  } catch (err) {
-    console.log("❌ PROFILE ERROR:", err);
-    res.json({ success: false });
-  }
 });
