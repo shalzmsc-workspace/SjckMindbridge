@@ -39,8 +39,9 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: "student" }
 });
 
-// 🔥 IMPORTANT: match your Mongo collection name
-const User = mongoose.model("User", userSchema, "counsellor");
+// 🔥 TWO COLLECTIONS SUPPORT
+const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
+const Student = mongoose.model("Student", userSchema, "login"); // <-- change if needed
 
 const messageSchema = new mongoose.Schema({
   room: String,
@@ -63,8 +64,6 @@ const io = new Server(server, {
 let onlineUsers = {};
 
 io.on("connection", (socket) => {
-  console.log("🔥 Socket Connected:", socket.id);
-
   socket.on("register-user", (email) => {
     if (!email) return;
 
@@ -72,11 +71,6 @@ io.on("connection", (socket) => {
     onlineUsers[cleanEmail] = socket.id;
 
     io.emit("online-users", Object.keys(onlineUsers));
-  });
-
-  socket.on("join_room", (room) => {
-    if (!room) return;
-    socket.join(room);
   });
 
   socket.on("disconnect", () => {
@@ -92,72 +86,36 @@ io.on("connection", (socket) => {
 // ================= USERS =================
 app.get("/users", async (req, res) => {
   try {
-    const users = await User.find();
-    console.log("👥 USERS:", users); // 🔥 DEBUG
-    res.json(users);
+    const counsellors = await Counsellor.find();
+    const students = await Student.find();
+
+    res.json([...counsellors, ...students]);
   } catch (err) {
-    console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
-  }
-});
-
-// ================= DELETE =================
-app.delete("/delete-user/:email", async (req, res) => {
-  try {
-    await User.deleteOne({
-      email: req.params.email.toLowerCase()
-    });
-    res.json({ success: true });
-  } catch (err) {
-    console.log("❌ DELETE ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-// ================= REGISTER =================
-app.post("/register", async (req, res) => {
-  try {
-    let { name, email, password } = req.body;
-
-    if (!name || !email || !password) {
-      return res.json({ success: false });
-    }
-
-    email = email.toLowerCase();
-
-    const exists = await User.findOne({ email });
-    if (exists) {
-      return res.json({ success: false });
-    }
-
-    const newUser = new User({
-      name,
-      email,
-      password,
-      profile: "",
-      role: "student"
-    });
-
-    await newUser.save();
-    res.json({ success: true });
-
-  } catch (err) {
-    console.log("❌ REGISTER ERROR:", err);
-    res.status(500).json({ success: false });
   }
 });
 
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
   try {
-    console.log("📥 LOGIN:", req.body);
-
     const { email, password } = req.body;
+    const cleanEmail = email.toLowerCase();
 
-    const user = await User.findOne({
-      email: email.toLowerCase(),
+    console.log("📥 LOGIN:", cleanEmail);
+
+    // 🔍 Check counsellor first
+    let user = await Counsellor.findOne({
+      email: cleanEmail,
       password
     });
+
+    // 🔍 If not found → check student
+    if (!user) {
+      user = await Student.findOne({
+        email: cleanEmail,
+        password
+      });
+    }
 
     console.log("👤 FOUND:", user);
 
@@ -177,72 +135,30 @@ app.post("/login", async (req, res) => {
 app.post("/upload-profile", async (req, res) => {
   try {
     let { email, image } = req.body;
-
-    if (!email || !image) {
-      return res.status(400).json({ success: false });
-    }
-
     email = email.toLowerCase();
 
-    console.log("📸 Updating profile:", email);
-
-    let user = await User.findOneAndUpdate(
+    let user = await Counsellor.findOneAndUpdate(
       { email },
       { profile: image },
       { new: true }
     );
 
-    // 🔥 AUTO CREATE IF NOT FOUND (fixes your issue permanently)
     if (!user) {
-      console.log("⚠️ User not found → creating new");
+      user = await Student.findOneAndUpdate(
+        { email },
+        { profile: image },
+        { new: true }
+      );
+    }
 
-      user = new User({
-        email,
-        name: "User",
-        profile: image
-      });
-
-      await user.save();
+    if (!user) {
+      return res.status(404).json({ success: false });
     }
 
     res.json({ success: true, user });
 
   } catch (err) {
-    console.log("❌ PROFILE ERROR:", err);
     res.status(500).json({ success: false });
-  }
-});
-
-// ================= MESSAGES =================
-app.get("/messages/:room", async (req, res) => {
-  try {
-    const messages = await Message.find({
-      room: req.params.room
-    }).sort({ createdAt: 1 });
-
-    res.json(messages);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post("/send-message", async (req, res) => {
-  try {
-    const { room, text, sender } = req.body;
-
-    if (!room || !text || !sender) {
-      return res.status(400).json({ error: "Missing fields" });
-    }
-
-    const newMessage = new Message({ room, text, sender });
-    await newMessage.save();
-
-    io.to(room).emit("receive_message", newMessage);
-
-    res.json(newMessage);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
