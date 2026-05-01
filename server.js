@@ -39,7 +39,7 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: "student" }
 });
 
-// 🔥 TWO COLLECTIONS
+// 🔥 COLLECTIONS
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
 const Student = mongoose.model("Student", userSchema, "login");
 
@@ -66,27 +66,35 @@ let onlineUsers = {};
 
 io.on("connection", (socket) => {
 
+  console.log("🔥 Socket connected:", socket.id);
+
   socket.on("register-user", (email) => {
     if (!email) return;
 
     const cleanEmail = email.toLowerCase();
     onlineUsers[cleanEmail] = socket.id;
 
+    console.log("👤 Online:", cleanEmail);
+
     io.emit("online-users", Object.keys(onlineUsers));
   });
 
   socket.on("join_room", (room) => {
     if (!room) return;
+
     socket.join(room);
     console.log("📦 Joined room:", room);
   });
 
   socket.on("disconnect", () => {
+    console.log("❌ Socket disconnected:", socket.id);
+
     for (let email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
         delete onlineUsers[email];
       }
     }
+
     io.emit("online-users", Object.keys(onlineUsers));
   });
 });
@@ -96,14 +104,16 @@ app.get("/users", async (req, res) => {
   try {
     const counsellors = await Counsellor.find();
     const students = await Student.find();
+
     res.json([...counsellors, ...students]);
+
   } catch (err) {
     console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// ================= GET SINGLE USER (FIXED) =================
+// ================= SINGLE USER =================
 app.get("/user/:email", async (req, res) => {
   try {
     const email = req.params.email.toLowerCase();
@@ -121,7 +131,7 @@ app.get("/user/:email", async (req, res) => {
     res.json(user);
 
   } catch (err) {
-    console.log("❌ USER FETCH ERROR:", err);
+    console.log("❌ USER ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -167,6 +177,8 @@ app.post("/register", async (req, res) => {
 
     await newUser.save();
 
+    console.log("✅ Registered:", email);
+
     res.json({ success: true });
 
   } catch (err) {
@@ -179,6 +191,11 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.json({ success: false });
+    }
+
     const cleanEmail = email.toLowerCase();
 
     let user = await Counsellor.findOne({
@@ -193,10 +210,12 @@ app.post("/login", async (req, res) => {
       });
     }
 
+    console.log("🔐 LOGIN:", cleanEmail, user ? "✅" : "❌");
+
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false, message: "Invalid credentials" });
+      res.json({ success: false });
     }
 
   } catch (err) {
@@ -274,6 +293,9 @@ app.post("/send-message", async (req, res) => {
 
     await newMessage.save();
 
+    console.log("📨 Message saved:", room);
+
+    // 🔥 CRITICAL: EMIT AFTER SAVE
     io.to(room).emit("receive_message", newMessage);
 
     res.json(newMessage);
