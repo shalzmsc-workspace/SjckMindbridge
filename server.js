@@ -43,6 +43,20 @@ const userSchema = new mongoose.Schema({
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
 const Student = mongoose.model("Student", userSchema, "login");
 
+// 🔥 MESSAGE MODEL (IMPORTANT)
+const messageSchema = new mongoose.Schema({
+  room: String,
+  text: String,
+  sender: String,
+  createdAt: {
+    type: Date,
+    default: Date.now,
+    expires: 86400 // auto delete after 24h
+  }
+});
+
+const Message = mongoose.model("Message", messageSchema);
+
 // ================= SOCKET =================
 const io = new Server(server, {
   cors: { origin: "*" }
@@ -51,6 +65,7 @@ const io = new Server(server, {
 let onlineUsers = {};
 
 io.on("connection", (socket) => {
+
   socket.on("register-user", (email) => {
     if (!email) return;
 
@@ -58,6 +73,11 @@ io.on("connection", (socket) => {
     onlineUsers[cleanEmail] = socket.id;
 
     io.emit("online-users", Object.keys(onlineUsers));
+  });
+
+  // 🔥 REQUIRED FOR CHAT
+  socket.on("join_room", (room) => {
+    socket.join(room);
   });
 
   socket.on("disconnect", () => {
@@ -75,14 +95,12 @@ app.get("/users", async (req, res) => {
   try {
     const counsellors = await Counsellor.find();
     const students = await Student.find();
-
     res.json([...counsellors, ...students]);
   } catch (err) {
     console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
-
 
 // ================= REGISTER =================
 app.post("/register", async (req, res) => {
@@ -95,7 +113,6 @@ app.post("/register", async (req, res) => {
 
     email = email.toLowerCase();
 
-    // 🔍 check existing user
     const exists =
       (await Counsellor.findOne({ email })) ||
       (await Student.findOne({ email }));
@@ -106,7 +123,6 @@ app.post("/register", async (req, res) => {
 
     let newUser;
 
-    // 🔥 Save based on role
     if (role === "counsellor") {
       newUser = new Counsellor({
         name,
@@ -127,8 +143,6 @@ app.post("/register", async (req, res) => {
 
     await newUser.save();
 
-    console.log("✅ Registered:", email);
-
     res.json({ success: true });
 
   } catch (err) {
@@ -137,30 +151,23 @@ app.post("/register", async (req, res) => {
   }
 });
 
-
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
     const cleanEmail = email.toLowerCase();
 
-    console.log("📥 LOGIN:", cleanEmail);
-
-    // 🔍 check counsellor
     let user = await Counsellor.findOne({
       email: cleanEmail,
       password
     });
 
-    // 🔍 check student
     if (!user) {
       user = await Student.findOne({
         email: cleanEmail,
         password
       });
     }
-
-    console.log("👤 FOUND:", user);
 
     if (user) {
       res.json({ success: true, user });
@@ -173,7 +180,6 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 // ================= PROFILE UPDATE =================
 app.post("/upload-profile", async (req, res) => {
@@ -212,6 +218,47 @@ app.post("/upload-profile", async (req, res) => {
   }
 });
 
+// ================= GET MESSAGES =================
+app.get("/messages/:room", async (req, res) => {
+  try {
+    const messages = await Message.find({
+      room: req.params.room
+    }).sort({ createdAt: 1 });
+
+    res.json(messages);
+
+  } catch (err) {
+    console.log("❌ GET MSG ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ================= SEND MESSAGE =================
+app.post("/send-message", async (req, res) => {
+  try {
+    const { room, text, sender } = req.body;
+
+    if (!room || !text || !sender) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+
+    const newMessage = new Message({
+      room,
+      text,
+      sender
+    });
+
+    await newMessage.save();
+
+    io.to(room).emit("receive_message", newMessage);
+
+    res.json(newMessage);
+
+  } catch (err) {
+    console.log("❌ SEND ERROR:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ================= START =================
 const PORT = process.env.PORT || 10000;
