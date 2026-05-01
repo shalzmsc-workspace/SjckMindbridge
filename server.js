@@ -43,7 +43,7 @@ const userSchema = new mongoose.Schema({
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
 const Student = mongoose.model("Student", userSchema, "login");
 
-// 🔥 MESSAGE MODEL (IMPORTANT)
+// 🔥 MESSAGE MODEL
 const messageSchema = new mongoose.Schema({
   room: String,
   text: String,
@@ -51,7 +51,7 @@ const messageSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 86400 // auto delete after 24h
+    expires: 86400
   }
 });
 
@@ -75,9 +75,10 @@ io.on("connection", (socket) => {
     io.emit("online-users", Object.keys(onlineUsers));
   });
 
-  // 🔥 REQUIRED FOR CHAT
   socket.on("join_room", (room) => {
+    if (!room) return;
     socket.join(room);
+    console.log("📦 Joined room:", room);
   });
 
   socket.on("disconnect", () => {
@@ -99,6 +100,29 @@ app.get("/users", async (req, res) => {
   } catch (err) {
     console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ================= GET SINGLE USER (FIXED) =================
+app.get("/user/:email", async (req, res) => {
+  try {
+    const email = req.params.email.toLowerCase();
+
+    let user = await Counsellor.findOne({ email });
+
+    if (!user) {
+      user = await Student.findOne({ email });
+    }
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json(user);
+
+  } catch (err) {
+    console.log("❌ USER FETCH ERROR:", err);
+    res.status(500).json({ error: err.message });
   }
 });
 
