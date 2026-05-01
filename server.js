@@ -12,7 +12,7 @@ app.use(express.urlencoded({ limit: "10mb", extended: true }));
 
 app.use(cors({
   origin: "*",
-  methods: ["GET", "POST"]
+  methods: ["GET", "POST", "DELETE"]
 }));
 
 // ================= ROOT =================
@@ -35,7 +35,8 @@ const userSchema = new mongoose.Schema({
   name: String,
   email: String,
   password: String,
-  profile: String
+  profile: String,
+  role: { type: String, default: "student" } // ✅ optional
 });
 
 const messageSchema = new mongoose.Schema({
@@ -45,7 +46,7 @@ const messageSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 86400 // 24 hours auto delete
+    expires: 86400
   }
 });
 
@@ -64,85 +65,64 @@ io.on("connection", (socket) => {
 
   socket.on("register-user", (email) => {
     if (!email) return;
+
     onlineUsers[email] = socket.id;
+
+    // 🔥 broadcast online users
+    io.emit("online-users", Object.keys(onlineUsers));
   });
 
   socket.on("join_room", (room) => {
     if (!room) return;
     socket.join(room);
-    console.log("📦 Joined room:", room);
   });
 
   socket.on("disconnect", () => {
-    console.log("❌ Disconnected:", socket.id);
-
     for (let email in onlineUsers) {
       if (onlineUsers[email] === socket.id) {
         delete onlineUsers[email];
       }
     }
+
+    io.emit("online-users", Object.keys(onlineUsers));
   });
 });
 
-// ================= GET MESSAGES =================
-app.get("/messages/:room", async (req, res) => {
+// ================= USERS =================
+app.get("/users", async (req, res) => {
   try {
-    const messages = await Message.find({
-      room: req.params.room
-    }).sort({ createdAt: 1 });
-
-    res.json(messages);
-
+    const users = await User.find();
+    res.json(users);
   } catch (err) {
-    console.log("❌ GET MSG ERROR:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ error: "Server error" });
   }
 });
 
-// ================= SEND MESSAGE =================
-app.post("/send-message", async (req, res) => {
+// ================= DELETE USER =================
+app.delete("/delete-user/:email", async (req, res) => {
   try {
-    const { room, text, sender } = req.body;
-
-    console.log("📩 Incoming:", req.body);
-
-    if (!room || !text || !sender) {
-      return res.status(400).json({ error: "Missing fields" });
-    }
-
-    const newMessage = new Message({
-      room,
-      text,
-      sender
+    await User.deleteOne({
+      email: req.params.email.toLowerCase()
     });
 
-    await newMessage.save();
-
-    console.log("✅ Message saved");
-
-    // 🔥 REALTIME EMIT (ONLY HERE, NOT IN SOCKET)
-    io.to(room).emit("receive_message", newMessage);
-
-    res.json(newMessage);
-
+    res.json({ success: true });
   } catch (err) {
-    console.log("❌ SEND ERROR:", err);
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false });
   }
 });
 
 // ================= REGISTER =================
 app.post("/register", async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    let { name, email, password } = req.body;
 
     if (!name || !email || !password) {
       return res.json({ success: false, message: "All fields required" });
     }
 
-    const cleanEmail = email.toLowerCase();
+    email = email.toLowerCase();
 
-    const exists = await User.findOne({ email: cleanEmail });
+    const exists = await User.findOne({ email });
 
     if (exists) {
       return res.json({ success: false, message: "User exists" });
@@ -150,9 +130,10 @@ app.post("/register", async (req, res) => {
 
     const newUser = new User({
       name,
-      email: cleanEmail,
+      email,
       password,
-      profile: ""
+      profile: "",
+      role: "student"
     });
 
     await newUser.save();
@@ -160,7 +141,6 @@ app.post("/register", async (req, res) => {
     res.json({ success: true });
 
   } catch (err) {
-    console.log("❌ REGISTER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -178,30 +158,11 @@ app.post("/login", async (req, res) => {
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false, message: "Invalid credentials" });
+      res.json({ success: false });
     }
 
   } catch (err) {
-    console.log("❌ LOGIN ERROR:", err);
     res.status(500).json({ success: false });
-  }
-});
-
-// ================= GET USER =================
-app.get("/user/:email", async (req, res) => {
-  try {
-    const user = await User.findOne({
-      email: req.params.email.toLowerCase()
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    res.json(user);
-
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -210,31 +171,64 @@ app.post("/upload-profile", async (req, res) => {
   try {
     const { email, image } = req.body;
 
+    console.log("📸 Upload:", email); // debug
+
     if (!email || !image) {
-      return res.status(400).json({
-        success: false,
-        message: "Missing data"
-      });
+      return res.status(400).json({ success: false });
     }
 
-    const user = await User.findOneAndUpdate(
+    const updatedUser = await User.findOneAndUpdate(
       { email: email.toLowerCase() },
       { profile: image },
       { new: true }
     );
 
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "User not found"
-      });
+    if (!updatedUser) {
+      return res.status(404).json({ success: false });
     }
 
-    res.json({ success: true, user });
+    res.json({
+      success: true,
+      user: updatedUser
+    });
 
   } catch (err) {
     console.log("❌ PROFILE ERROR:", err);
     res.status(500).json({ success: false });
+  }
+});
+
+// ================= MESSAGES =================
+app.get("/messages/:room", async (req, res) => {
+  try {
+    const messages = await Message.find({
+      room: req.params.room
+    }).sort({ createdAt: 1 });
+
+    res.json(messages);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post("/send-message", async (req, res) => {
+  try {
+    const { room, text, sender } = req.body;
+
+    if (!room || !text || !sender) {
+      return res.status(400).json({ error: "Missing fields" });
+    }
+
+    const newMessage = new Message({ room, text, sender });
+    await newMessage.save();
+
+    io.to(room).emit("receive_message", newMessage);
+
+    res.json(newMessage);
+
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -243,13 +237,4 @@ const PORT = process.env.PORT || 5000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
-});
-app.get("/users", async (req, res) => {
-  try {
-    const users = await User.find(); // MongoDB
-    res.json(users);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Server error" });
-  }
 });
