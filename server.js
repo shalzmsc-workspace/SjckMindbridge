@@ -39,9 +39,9 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: "student" }
 });
 
-// 🔥 TWO COLLECTIONS SUPPORT
+// 🔥 IMPORTANT: define AFTER schema (no duplicates)
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
-const Student = mongoose.model("Student", userSchema, "login"); // <-- change if needed
+const Student = mongoose.model("Student", userSchema, "login"); // change if needed
 
 const messageSchema = new mongoose.Schema({
   room: String,
@@ -91,6 +91,7 @@ app.get("/users", async (req, res) => {
 
     res.json([...counsellors, ...students]);
   } catch (err) {
+    console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
@@ -103,13 +104,11 @@ app.post("/login", async (req, res) => {
 
     console.log("📥 LOGIN:", cleanEmail);
 
-    // 🔍 Check counsellor first
     let user = await Counsellor.findOne({
       email: cleanEmail,
       password
     });
 
-    // 🔍 If not found → check student
     if (!user) {
       user = await Student.findOne({
         email: cleanEmail,
@@ -135,6 +134,11 @@ app.post("/login", async (req, res) => {
 app.post("/upload-profile", async (req, res) => {
   try {
     let { email, image } = req.body;
+
+    if (!email || !image) {
+      return res.status(400).json({ success: false });
+    }
+
     email = email.toLowerCase();
 
     let user = await Counsellor.findOneAndUpdate(
@@ -158,12 +162,13 @@ app.post("/upload-profile", async (req, res) => {
     res.json({ success: true, user });
 
   } catch (err) {
+    console.log("❌ PROFILE ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
 
 // ================= START =================
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 10000;
 
 server.listen(PORT, () => {
   console.log("🚀 Server running on port", PORT);
