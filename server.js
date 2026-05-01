@@ -39,11 +39,9 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: "student" }
 });
 
-// 🔥 COLLECTIONS
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
 const Student = mongoose.model("Student", userSchema, "login");
 
-// 🔥 MESSAGE MODEL
 const messageSchema = new mongoose.Schema({
   room: String,
   text: String,
@@ -68,6 +66,7 @@ io.on("connection", (socket) => {
 
   console.log("🔥 Socket connected:", socket.id);
 
+  // ================= REGISTER =================
   socket.on("register-user", (email) => {
     if (!email) return;
 
@@ -79,6 +78,7 @@ io.on("connection", (socket) => {
     io.emit("online-users", Object.keys(onlineUsers));
   });
 
+  // ================= JOIN ROOM =================
   socket.on("join_room", (room) => {
     if (!room) return;
 
@@ -86,6 +86,24 @@ io.on("connection", (socket) => {
     console.log("📦 Joined room:", room);
   });
 
+  // ================= 🔥 CALL FIX =================
+  socket.on("call-user", ({ to, from }) => {
+
+    const cleanTo = to.toLowerCase();
+    const cleanFrom = from.toLowerCase();
+
+    console.log("📞 CALL:", cleanFrom, "→", cleanTo);
+
+    const targetSocket = onlineUsers[cleanTo];
+
+    if (targetSocket) {
+      io.to(targetSocket).emit("incoming-call", { from: cleanFrom });
+    } else {
+      console.log("❌ User not online:", cleanTo);
+    }
+  });
+
+  // ================= DISCONNECT =================
   socket.on("disconnect", () => {
     console.log("❌ Socket disconnected:", socket.id);
 
@@ -104,86 +122,9 @@ app.get("/users", async (req, res) => {
   try {
     const counsellors = await Counsellor.find();
     const students = await Student.find();
-
     res.json([...counsellors, ...students]);
-
   } catch (err) {
-    console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
-  }
-});
-
-// ================= SINGLE USER =================
-app.get("/user/:email", async (req, res) => {
-  try {
-    const email = req.params.email.toLowerCase();
-
-    let user = await Counsellor.findOne({ email });
-
-    if (!user) {
-      user = await Student.findOne({ email });
-    }
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    res.json(user);
-
-  } catch (err) {
-    console.log("❌ USER ERROR:", err);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// ================= REGISTER =================
-app.post("/register", async (req, res) => {
-  try {
-    let { name, email, password, role } = req.body;
-
-    if (!name || !email || !password) {
-      return res.json({ success: false, message: "All fields required" });
-    }
-
-    email = email.toLowerCase();
-
-    const exists =
-      (await Counsellor.findOne({ email })) ||
-      (await Student.findOne({ email }));
-
-    if (exists) {
-      return res.json({ success: false, message: "User already exists" });
-    }
-
-    let newUser;
-
-    if (role === "counsellor") {
-      newUser = new Counsellor({
-        name,
-        email,
-        password,
-        profile: "",
-        role: "counsellor"
-      });
-    } else {
-      newUser = new Student({
-        name,
-        email,
-        password,
-        profile: "",
-        role: "student"
-      });
-    }
-
-    await newUser.save();
-
-    console.log("✅ Registered:", email);
-
-    res.json({ success: true });
-
-  } catch (err) {
-    console.log("❌ REGISTER ERROR:", err);
-    res.status(500).json({ success: false });
   }
 });
 
@@ -191,26 +132,13 @@ app.post("/register", async (req, res) => {
 app.post("/login", async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.json({ success: false });
-    }
-
     const cleanEmail = email.toLowerCase();
 
-    let user = await Counsellor.findOne({
-      email: cleanEmail,
-      password
-    });
+    let user = await Counsellor.findOne({ email: cleanEmail, password });
 
     if (!user) {
-      user = await Student.findOne({
-        email: cleanEmail,
-        password
-      });
+      user = await Student.findOne({ email: cleanEmail, password });
     }
-
-    console.log("🔐 LOGIN:", cleanEmail, user ? "✅" : "❌");
 
     if (user) {
       res.json({ success: true, user });
@@ -218,61 +146,8 @@ app.post("/login", async (req, res) => {
       res.json({ success: false });
     }
 
-  } catch (err) {
-    console.log("❌ LOGIN ERROR:", err);
+  } catch {
     res.status(500).json({ success: false });
-  }
-});
-
-// ================= PROFILE UPDATE =================
-app.post("/upload-profile", async (req, res) => {
-  try {
-    let { email, image } = req.body;
-
-    if (!email || !image) {
-      return res.status(400).json({ success: false });
-    }
-
-    email = email.toLowerCase();
-
-    let user = await Counsellor.findOneAndUpdate(
-      { email },
-      { profile: image },
-      { new: true }
-    );
-
-    if (!user) {
-      user = await Student.findOneAndUpdate(
-        { email },
-        { profile: image },
-        { new: true }
-      );
-    }
-
-    if (!user) {
-      return res.status(404).json({ success: false });
-    }
-
-    res.json({ success: true, user });
-
-  } catch (err) {
-    console.log("❌ PROFILE ERROR:", err);
-    res.status(500).json({ success: false });
-  }
-});
-
-// ================= GET MESSAGES =================
-app.get("/messages/:room", async (req, res) => {
-  try {
-    const messages = await Message.find({
-      room: req.params.room
-    }).sort({ createdAt: 1 });
-
-    res.json(messages);
-
-  } catch (err) {
-    console.log("❌ GET MSG ERROR:", err);
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -281,27 +156,14 @@ app.post("/send-message", async (req, res) => {
   try {
     const { room, text, sender } = req.body;
 
-    if (!room || !text || !sender) {
-      return res.status(400).json({ error: "Missing fields" });
-    }
-
-    const newMessage = new Message({
-      room,
-      text,
-      sender
-    });
-
+    const newMessage = new Message({ room, text, sender });
     await newMessage.save();
 
-    console.log("📨 Message saved:", room);
-
-    // 🔥 CRITICAL: EMIT AFTER SAVE
     io.to(room).emit("receive_message", newMessage);
 
     res.json(newMessage);
 
   } catch (err) {
-    console.log("❌ SEND ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
