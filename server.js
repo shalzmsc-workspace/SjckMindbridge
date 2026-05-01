@@ -25,7 +25,7 @@ const server = http.createServer(app);
 
 // ================= MONGODB =================
 mongoose.connect(
-  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridge?retryWrites=true&w=majority"
+  "mongodb+srv://sjckcounselling-123:mindbridge123@mindbridgedb.xvawre3.mongodb.net/mindbridgeDB?retryWrites=true&w=majority"
 )
 .then(() => console.log("✅ MongoDB Connected"))
 .catch((err) => console.log("❌ DB Error:", err));
@@ -36,8 +36,11 @@ const userSchema = new mongoose.Schema({
   email: String,
   password: String,
   profile: String,
-  role: { type: String, default: "student" } // ✅ optional
+  role: { type: String, default: "student" }
 });
+
+// 🔥 IMPORTANT: match your Mongo collection name
+const User = mongoose.model("User", userSchema, "counsellor");
 
 const messageSchema = new mongoose.Schema({
   room: String,
@@ -50,7 +53,6 @@ const messageSchema = new mongoose.Schema({
   }
 });
 
-const User = mongoose.model("User", userSchema);
 const Message = mongoose.model("Message", messageSchema);
 
 // ================= SOCKET =================
@@ -66,9 +68,9 @@ io.on("connection", (socket) => {
   socket.on("register-user", (email) => {
     if (!email) return;
 
-    onlineUsers[email] = socket.id;
+    const cleanEmail = email.toLowerCase();
+    onlineUsers[cleanEmail] = socket.id;
 
-    // 🔥 broadcast online users
     io.emit("online-users", Object.keys(onlineUsers));
   });
 
@@ -83,7 +85,6 @@ io.on("connection", (socket) => {
         delete onlineUsers[email];
       }
     }
-
     io.emit("online-users", Object.keys(onlineUsers));
   });
 });
@@ -92,21 +93,23 @@ io.on("connection", (socket) => {
 app.get("/users", async (req, res) => {
   try {
     const users = await User.find();
+    console.log("👥 USERS:", users); // 🔥 DEBUG
     res.json(users);
   } catch (err) {
+    console.log("❌ USERS ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// ================= DELETE USER =================
+// ================= DELETE =================
 app.delete("/delete-user/:email", async (req, res) => {
   try {
     await User.deleteOne({
       email: req.params.email.toLowerCase()
     });
-
     res.json({ success: true });
   } catch (err) {
+    console.log("❌ DELETE ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -117,15 +120,14 @@ app.post("/register", async (req, res) => {
     let { name, email, password } = req.body;
 
     if (!name || !email || !password) {
-      return res.json({ success: false, message: "All fields required" });
+      return res.json({ success: false });
     }
 
     email = email.toLowerCase();
 
     const exists = await User.findOne({ email });
-
     if (exists) {
-      return res.json({ success: false, message: "User exists" });
+      return res.json({ success: false });
     }
 
     const newUser = new User({
@@ -137,10 +139,10 @@ app.post("/register", async (req, res) => {
     });
 
     await newUser.save();
-
     res.json({ success: true });
 
   } catch (err) {
+    console.log("❌ REGISTER ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -148,6 +150,8 @@ app.post("/register", async (req, res) => {
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
   try {
+    console.log("📥 LOGIN:", req.body);
+
     const { email, password } = req.body;
 
     const user = await User.findOne({
@@ -155,13 +159,16 @@ app.post("/login", async (req, res) => {
       password
     });
 
+    console.log("👤 FOUND:", user);
+
     if (user) {
       res.json({ success: true, user });
     } else {
-      res.json({ success: false });
+      res.json({ success: false, message: "Invalid credentials" });
     }
 
   } catch (err) {
+    console.log("❌ LOGIN ERROR:", err);
     res.status(500).json({ success: false });
   }
 });
@@ -169,28 +176,36 @@ app.post("/login", async (req, res) => {
 // ================= PROFILE UPDATE =================
 app.post("/upload-profile", async (req, res) => {
   try {
-    const { email, image } = req.body;
-
-    console.log("📸 Upload:", email); // debug
+    let { email, image } = req.body;
 
     if (!email || !image) {
       return res.status(400).json({ success: false });
     }
 
-    const updatedUser = await User.findOneAndUpdate(
-      { email: email.toLowerCase() },
+    email = email.toLowerCase();
+
+    console.log("📸 Updating profile:", email);
+
+    let user = await User.findOneAndUpdate(
+      { email },
       { profile: image },
       { new: true }
     );
 
-    if (!updatedUser) {
-      return res.status(404).json({ success: false });
+    // 🔥 AUTO CREATE IF NOT FOUND (fixes your issue permanently)
+    if (!user) {
+      console.log("⚠️ User not found → creating new");
+
+      user = new User({
+        email,
+        name: "User",
+        profile: image
+      });
+
+      await user.save();
     }
 
-    res.json({
-      success: true,
-      user: updatedUser
-    });
+    res.json({ success: true, user });
 
   } catch (err) {
     console.log("❌ PROFILE ERROR:", err);
@@ -206,7 +221,6 @@ app.get("/messages/:room", async (req, res) => {
     }).sort({ createdAt: 1 });
 
     res.json(messages);
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
