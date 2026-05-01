@@ -39,22 +39,9 @@ const userSchema = new mongoose.Schema({
   role: { type: String, default: "student" }
 });
 
-// 🔥 IMPORTANT: define AFTER schema (no duplicates)
+// 🔥 TWO COLLECTIONS
 const Counsellor = mongoose.model("Counsellor", userSchema, "counsellor");
-const Student = mongoose.model("Student", userSchema, "login"); // change if needed
-
-const messageSchema = new mongoose.Schema({
-  room: String,
-  text: String,
-  sender: String,
-  createdAt: {
-    type: Date,
-    default: Date.now,
-    expires: 86400
-  }
-});
-
-const Message = mongoose.model("Message", messageSchema);
+const Student = mongoose.model("Student", userSchema, "login");
 
 // ================= SOCKET =================
 const io = new Server(server, {
@@ -96,6 +83,61 @@ app.get("/users", async (req, res) => {
   }
 });
 
+
+// ================= REGISTER =================
+app.post("/register", async (req, res) => {
+  try {
+    let { name, email, password, role } = req.body;
+
+    if (!name || !email || !password) {
+      return res.json({ success: false, message: "All fields required" });
+    }
+
+    email = email.toLowerCase();
+
+    // 🔍 check existing user
+    const exists =
+      (await Counsellor.findOne({ email })) ||
+      (await Student.findOne({ email }));
+
+    if (exists) {
+      return res.json({ success: false, message: "User already exists" });
+    }
+
+    let newUser;
+
+    // 🔥 Save based on role
+    if (role === "counsellor") {
+      newUser = new Counsellor({
+        name,
+        email,
+        password,
+        profile: "",
+        role: "counsellor"
+      });
+    } else {
+      newUser = new Student({
+        name,
+        email,
+        password,
+        profile: "",
+        role: "student"
+      });
+    }
+
+    await newUser.save();
+
+    console.log("✅ Registered:", email);
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.log("❌ REGISTER ERROR:", err);
+    res.status(500).json({ success: false });
+  }
+});
+
+
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
   try {
@@ -104,11 +146,13 @@ app.post("/login", async (req, res) => {
 
     console.log("📥 LOGIN:", cleanEmail);
 
+    // 🔍 check counsellor
     let user = await Counsellor.findOne({
       email: cleanEmail,
       password
     });
 
+    // 🔍 check student
     if (!user) {
       user = await Student.findOne({
         email: cleanEmail,
@@ -129,6 +173,7 @@ app.post("/login", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 // ================= PROFILE UPDATE =================
 app.post("/upload-profile", async (req, res) => {
@@ -166,6 +211,7 @@ app.post("/upload-profile", async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
+
 
 // ================= START =================
 const PORT = process.env.PORT || 10000;
